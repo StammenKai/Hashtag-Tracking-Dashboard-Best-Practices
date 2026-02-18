@@ -8,6 +8,7 @@ from atproto import Client
 from wordcloud import WordCloud
 from mwviews.api import PageviewsClient  # <--- NEU: Wikipedia
 from streamlit_autorefresh import st_autorefresh
+import urllib.parse
 
 # --- KONFIGURATION ---
 st.set_page_config(page_title="Social Radar 360°", layout="wide", page_icon="📡")
@@ -68,11 +69,22 @@ def get_google_trends_data(keyword):
         data = pytrends.interest_over_time()
         return data if not data.empty else pd.DataFrame()
     except Exception: return pd.DataFrame()
-
-# --- FUNKTION 4: NEWS ---
+    
+# --- FUNKTION 4: NEWS (Korrigiert) ---
 def get_news_feed(keyword):
-    rss_url = f"https://news.google.com/rss/search?q={keyword}&hl=de&gl=DE&ceid=DE:de"
+    # Schritt 1: Suchbegriff "URL-sicher" machen (z.B. Leerzeichen -> %20)
+    encoded_keyword = urllib.parse.quote(keyword)
+    
+    # Schritt 2: URL bauen
+    rss_url = f"https://news.google.com/rss/search?q={encoded_keyword}&hl=de&gl=DE&ceid=DE:de"
+    
+    # Schritt 3: Abrufen
     feed = feedparser.parse(rss_url)
+    
+    # Schritt 4: Daten verarbeiten
+    if not feed.entries:
+        return pd.DataFrame()
+        
     return pd.DataFrame([{"Titel": e.title, "Link": e.link} for e in feed.entries[:5]])
 
 # --- DASHBOARD LAYOUT ---
