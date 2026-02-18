@@ -77,7 +77,66 @@ def get_news_feed(keyword):
     if not feed.entries: return pd.DataFrame()
     return pd.DataFrame([{"Titel": e.title, "Link": e.link} for e in feed.entries[:5]])
 
-def create_pdf_report(keyword, df_trends, df_news, df_wiki, total_wiki_views):
+# --- UPDATE: PDF REPORT MIT KI-TEXT ---
+def create_pdf_report(keyword, df_trends, df_news, df_wiki, total_wiki_views, ai_summary=None):
+    pdf = FPDF()
+    pdf.add_page()
+    
+    # Header
+    pdf.set_font("Arial", 'B', 16)
+    pdf.cell(0, 10, txt=f"Social Media Report: {keyword}", ln=True, align='C')
+    pdf.set_font("Arial", size=10)
+    pdf.cell(0, 10, txt=f"Erstellt am: {datetime.now().strftime('%d.%m.%Y %H:%M')}", ln=True, align='C')
+    pdf.ln(10)
+
+    # 1. Google Trends
+    if not df_trends.empty:
+        pdf.set_font("Arial", 'B', 14)
+        pdf.cell(0, 10, txt="1. Google Suchinteresse", ln=True)
+        
+        plt.figure(figsize=(10, 5))
+        plt.plot(df_trends.index, df_trends[keyword], color='blue', linewidth=2)
+        plt.title(f"Suchvolumen für '{keyword}'")
+        plt.grid(True, linestyle='--', alpha=0.5)
+        
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmpfile:
+            plt.savefig(tmpfile.name, bbox_inches='tight')
+            plt.close()
+            pdf.image(tmpfile.name, x=10, w=190)
+        pdf.ln(5)
+
+    # 2. Wikipedia
+    pdf.set_font("Arial", 'B', 14)
+    pdf.cell(0, 10, txt="2. Wikipedia Analyse", ln=True)
+    pdf.set_font("Arial", size=12)
+    pdf.cell(0, 10, txt=f"Gesamte Aufrufe (letzte 30 Tage): {total_wiki_views:,}", ln=True)
+    pdf.ln(5)
+
+    # 3. News
+    if not df_news.empty:
+        pdf.set_font("Arial", 'B', 14)
+        pdf.cell(0, 10, txt="3. Top Schlagzeilen", ln=True)
+        pdf.set_font("Arial", size=10)
+        for i, row in df_news.iterrows():
+            clean_title = row['Titel'].encode('latin-1', 'replace').decode('latin-1')
+            pdf.multi_cell(0, 8, txt=f"- {clean_title}")
+    
+    # 4. KI-Analyse (NEU!)
+    if ai_summary:
+        pdf.add_page() # Neue Seite für die KI
+        pdf.set_font("Arial", 'B', 14)
+        pdf.cell(0, 10, txt="4. KI Management Summary", ln=True)
+        pdf.set_font("Arial", size=11)
+        
+        # Markdown entfernen (Fettgedrucktes etc. mag FPDF nicht so gerne)
+        clean_text = ai_summary.replace("## ", "").replace("**", "").replace("__", "")
+        
+        # Encoding reparieren (Emojis entfernen, Umlaute behalten soweit möglich)
+        clean_text = clean_text.encode('latin-1', 'replace').decode('latin-1')
+        
+        pdf.multi_cell(0, 6, txt=clean_text)
+
+    return pdf.output(dest='S').encode('latin-1')
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", size=12)
@@ -171,15 +230,23 @@ if keyword:
     if bsky_user and bsky_pass:
         df_social = get_bluesky_posts(keyword, bsky_user, bsky_pass)
 
-    # --- KI SECTION (Ganz oben) ---
+    # --- KI SECTION ---
     st.markdown("### 🤖 KI-Marktanalyse")
     with st.expander("✨ Klicke hier für die KI-Einschätzung", expanded=False):
         if st.button("Analyse generieren"):
             with st.spinner("KI analysiert Datenquellen..."):
-                analysis = analyze_with_gpt(keyword, df_trends, df_news, df_wiki, df_social)
-                st.markdown(analysis)
-
-    st.markdown("---")
+                # Analyse durchführen
+                analysis_text = analyze_with_gpt(keyword, df_trends, df_news, df_wiki, df_social)
+                
+                # WICHTIG: Im Session State speichern für später!
+                st.session_state['ai_result'] = analysis_text
+                
+                # Anzeigen
+                st.markdown(analysis_text)
+        
+        # Falls schon eine Analyse da ist (vom vorherigen Klick), zeige sie wieder an
+        elif 'ai_result' in st.session_state:
+            st.markdown(st.session_state['ai_result'])
 
     # --- CHARTS SECTION ---
     st.subheader(f"📈 Such-Interesse: {keyword}")
@@ -231,8 +298,12 @@ if keyword:
     if not df_wiki.empty:
         st.sidebar.download_button("📖 Wiki CSV", df_wiki.to_csv().encode('utf-8'), f'wiki_{keyword}.csv', 'text/csv')
         
-        # PDF Button
-        pdf_data = create_pdf_report(keyword, df_trends, df_news, df_wiki, df_wiki[wiki_term].sum())
+        # Prüfen, ob wir eine KI-Analyse im Speicher haben
+        ai_text_for_pdf = st.session_state.get('ai_result', None)
+        
+        # PDF Button mit KI-Text
+        pdf_data = create_pdf_report(keyword, df_trends, df_news, df_wiki, df_wiki[wiki_term].sum(), ai_text_for_pdf)
+        
         st.sidebar.download_button("📄 PDF Report", pdf_data, f'Report_{keyword}.pdf', 'application/pdf')
 
     if not df_social.empty:
