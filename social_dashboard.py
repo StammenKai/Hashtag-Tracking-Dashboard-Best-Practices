@@ -16,10 +16,19 @@ st.set_page_config(page_title="Social Radar 360°", layout="wide", page_icon="�
 count = st_autorefresh(interval=5 * 60 * 1000, key="dataframerefresh")
 
 # --- SIDEBAR ---
-st.sidebar.header("🔐 Bluesky Login")
-bsky_user = st.sidebar.text_input("Bluesky Handle")
-bsky_pass = st.sidebar.text_input("App Password", type="password")
+# --- SIDEBAR: LOGIN LOGIK ---
+st.sidebar.header("🔐 Login Status")
 
+# Wir prüfen, ob die Zugangsdaten in den "Secrets" hinterlegt sind
+if "bluesky_username" in st.secrets and "bluesky_password" in st.secrets:
+    bsky_user = st.secrets["bluesky_username"]
+    bsky_pass = st.secrets["bluesky_password"]
+    st.sidebar.success("✅ Automatisch eingeloggt")
+else:
+    # Fallback: Manuelle Eingabe, falls keine Secrets da sind
+    st.sidebar.info("Keine Secrets gefunden. Bitte manuell einloggen.")
+    bsky_user = st.sidebar.text_input("Bluesky Handle")
+    bsky_pass = st.sidebar.text_input("App Password", type="password")
 # --- FUNKTION 1: WIKIPEDIA (NEU!) ---
 @st.cache_data(ttl=3600)
 def get_wiki_data(keyword):
@@ -69,7 +78,7 @@ def get_google_trends_data(keyword):
         data = pytrends.interest_over_time()
         return data if not data.empty else pd.DataFrame()
     except Exception: return pd.DataFrame()
-    
+
 # --- FUNKTION 4: NEWS (Korrigiert) ---
 def get_news_feed(keyword):
     # Schritt 1: Suchbegriff "URL-sicher" machen (z.B. Leerzeichen -> %20)
