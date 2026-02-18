@@ -1,93 +1,47 @@
-
 import streamlit as st
 import pandas as pd
 import feedparser
 import matplotlib.pyplot as plt
+import urllib.parse
 from pytrends.request import TrendReq
 from atproto import Client
 from wordcloud import WordCloud
-from mwviews.api import PageviewsClient  # <--- NEU: Wikipedia
+from mwviews.api import PageviewsClient
 from streamlit_autorefresh import st_autorefresh
-import urllib.parse
 
-# --- KONFIGURATION ---
+# --- 1. KONFIGURATION ---
 st.set_page_config(page_title="Social Radar 360°", layout="wide", page_icon="📡")
-# Aktualisiere alle 5 Minuten (300.000 Millisekunden)
+
+# Auto-Refresh alle 5 Minuten (300.000 ms)
 count = st_autorefresh(interval=5 * 60 * 1000, key="dataframerefresh")
 
-# --- SIDEBAR ---
-# --- SIDEBAR: LOGIN LOGIK ---
+# --- 2. SIDEBAR & LOGIN (SECRETS) ---
 st.sidebar.header("🔐 Login Status")
 
-# Wir prüfen, ob die Zugangsdaten in den "Secrets" hinterlegt sind
+# Prüfen, ob Secrets vorhanden sind
 if "bluesky_username" in st.secrets and "bluesky_password" in st.secrets:
     bsky_user = st.secrets["bluesky_username"]
     bsky_pass = st.secrets["bluesky_password"]
     st.sidebar.success("✅ Automatisch eingeloggt")
 else:
-    # Fallback: Manuelle Eingabe, falls keine Secrets da sind
-    st.sidebar.info("Keine Secrets gefunden. Bitte manuell einloggen.")
+    st.sidebar.info("Keine Secrets gefunden. Manuell einloggen:")
     bsky_user = st.sidebar.text_input("Bluesky Handle")
     bsky_pass = st.sidebar.text_input("App Password", type="password")
 
-    st.sidebar.markdown("---")
-st.sidebar.header("💾 Daten-Export")
+# --- 3. DATEN-FUNKTIONEN ---
 
-if keyword:
-    # 1. Export: Google Trends
-    if 'df_trends' in locals() and not df_trends.empty:
-        csv_trends = df_trends.to_csv(index=False).encode('utf-8')
-        st.sidebar.download_button(
-            label="📈 Trends als CSV",
-            data=csv_trends,
-            file_name=f'trends_{keyword}.csv',
-            mime='text/csv',
-        )
-
-    # 2. Export: Wikipedia
-    if 'df_wiki' in locals() and not df_wiki.empty:
-        csv_wiki = df_wiki.to_csv().encode('utf-8')
-        st.sidebar.download_button(
-            label="📖 Wiki-Daten als CSV",
-            data=csv_wiki,
-            file_name=f'wiki_{keyword}.csv',
-            mime='text/csv',
-        )
-    
-    # 3. Export: Social (Bluesky)
-    if 'df_social' in locals() and not df_social.empty:
-        csv_social = df_social.to_csv(index=False).encode('utf-8')
-        st.sidebar.download_button(
-            label="🦋 Social-Posts als CSV",
-            data=csv_social,
-            file_name=f'social_{keyword}.csv',
-            mime='text/csv',
-        )
-        
-# --- FUNKTION 1: WIKIPEDIA (NEU!) ---
 @st.cache_data(ttl=3600)
 def get_wiki_data(keyword):
     p = PageviewsClient(user_agent="Dashboard-User")
     try:
-        # Wir versuchen, den Begriff direkt zu finden (Großschreibung beachten!)
-        # Leerzeichen durch Unterstriche ersetzen für Wiki-URLs
-        wiki_term = keyword.replace(" ", "_").title() 
-        
-        # Hole Daten der letzten 30 Tage
+        wiki_term = keyword.replace(" ", "_").title()
         data = p.article_views('de.wikipedia', [wiki_term], granularity='daily')
-        
-        # Das Datenformat ist etwas komplex, wir vereinfachen es:
-        # data ist ein Dict: {date: {article: views}} -> wir brauchen ein DataFrame
         df = pd.DataFrame.from_dict(data, orient='index')
-        
-        # Index in echtes Datumsformat umwandeln
         df.index = pd.to_datetime(df.index)
         return df, wiki_term
-        
-    except Exception as e:
+    except Exception:
         return pd.DataFrame(), ""
 
-# --- FUNKTION 2: BLUESKY ---
 def get_bluesky_posts(query, username, password):
     if not username or not password: return pd.DataFrame()
     try:
@@ -104,7 +58,6 @@ def get_bluesky_posts(query, username, password):
         return pd.DataFrame(posts_data)
     except Exception: return pd.DataFrame()
 
-# --- FUNKTION 3: GOOGLE TRENDS ---
 @st.cache_data(ttl=3600)
 def get_google_trends_data(keyword):
     try:
@@ -114,44 +67,35 @@ def get_google_trends_data(keyword):
         return data if not data.empty else pd.DataFrame()
     except Exception: return pd.DataFrame()
 
-# --- FUNKTION 4: NEWS (Korrigiert) ---
 def get_news_feed(keyword):
-    # Schritt 1: Suchbegriff "URL-sicher" machen (z.B. Leerzeichen -> %20)
     encoded_keyword = urllib.parse.quote(keyword)
-    
-    # Schritt 2: URL bauen
     rss_url = f"https://news.google.com/rss/search?q={encoded_keyword}&hl=de&gl=DE&ceid=DE:de"
-    
-    # Schritt 3: Abrufen
     feed = feedparser.parse(rss_url)
-    
-    # Schritt 4: Daten verarbeiten
-    if not feed.entries:
-        return pd.DataFrame()
-        
+    if not feed.entries: return pd.DataFrame()
     return pd.DataFrame([{"Titel": e.title, "Link": e.link} for e in feed.entries[:5]])
 
-# --- DASHBOARD LAYOUT ---
+# --- 4. HAUPT-DASHBOARD UI ---
 st.title("📡 Social Radar 360°")
-st.caption("Datenquellen: Google Trends, Google News, Wikipedia & Bluesky")
+st.caption("Live-Monitoring: Google, News, Wikipedia & Bluesky")
 
+# WICHTIG: Das Input-Feld muss HIER stehen, BEVOR wir 'if keyword' nutzen!
 keyword = st.text_input("Thema eingeben (z.B. Bitcoin, KI, Angela Merkel):", "Bitcoin")
 
 if keyword:
-    # 1. GOOGLE TRENDS CHART (Ganz oben)
+    # --- GOOGLE TRENDS ---
     st.subheader(f"📈 Such-Interesse: {keyword}")
     df_trends = get_google_trends_data(keyword)
     if not df_trends.empty:
-        st.line_chart(df_trends[keyword], color="#4285F4") # Google Blau
+        st.line_chart(df_trends[keyword], color="#4285F4")
     else:
         st.warning("Keine Google-Daten.")
 
     st.markdown("---")
 
-    # 2. DREI-SPALTEN-LAYOUT (News | Wikipedia | Bluesky)
+    # --- 3-SPALTEN LAYOUT ---
     col1, col2, col3 = st.columns(3)
 
-    # --- SPALTE 1: NEWS ---
+    # SPALTE 1: NEWS
     with col1:
         st.header("📰 News")
         df_news = get_news_feed(keyword)
@@ -161,40 +105,45 @@ if keyword:
         else:
             st.info("Keine aktuellen News.")
 
-    # --- SPALTE 2: WIKIPEDIA (NEU) ---
+    # SPALTE 2: WIKIPEDIA
     with col2:
         st.header("📖 Wikipedia")
         df_wiki, wiki_term = get_wiki_data(keyword)
-        
         if not df_wiki.empty:
-            # Zeige die Gesamtzahl der Aufrufe
             total_views = df_wiki[wiki_term].sum()
-            st.metric("Aufrufe (letzte 30 Tage)", f"{total_views:,}")
-            
-            # Zeige den Verlauf als Flächendiagramm
+            st.metric("Aufrufe (30 Tage)", f"{total_views:,}")
             st.area_chart(df_wiki[wiki_term], color="#000000")
-            st.caption(f"Artikel: {wiki_term}")
         else:
-            st.warning(f"Artikel '{keyword}' nicht gefunden. Achte auf Großschreibung!")
+            st.warning("Artikel nicht gefunden.")
 
-    # --- SPALTE 3: SOCIAL (BLUESKY) ---
+    # SPALTE 3: SOCIAL
     with col3:
         st.header("🦋 Social")
         if bsky_user and bsky_pass:
             df_social = get_bluesky_posts(keyword, bsky_user, bsky_pass)
             if not df_social.empty:
-                # Wordcloud
                 text = " ".join(df_social['Inhalt'].tolist())
                 wc = WordCloud(width=400, height=200, background_color='white').generate(text)
                 fig, ax = plt.subplots(figsize=(4, 2))
                 ax.imshow(wc, interpolation='bilinear')
                 ax.axis("off")
                 st.pyplot(fig)
-                
-                # Letzte 3 Posts
                 for i, row in df_social.head(3).iterrows():
                     st.info(f"**@{row['Autor']}**: {row['Inhalt'][:100]}...")
             else:
                 st.info("Keine Posts gefunden.")
         else:
-            st.warning("Login erforderlich.")
+            st.warning("Nicht eingeloggt.")
+
+    # --- 5. EXPORT BUTTONS (SIDEBAR) ---
+    st.sidebar.markdown("---")
+    st.sidebar.header("💾 Daten-Export")
+    
+    if 'df_trends' in locals() and not df_trends.empty:
+        st.sidebar.download_button("📈 Trends CSV", df_trends.to_csv().encode('utf-8'), f'trends_{keyword}.csv', 'text/csv')
+    
+    if 'df_wiki' in locals() and not df_wiki.empty:
+        st.sidebar.download_button("📖 Wiki CSV", df_wiki.to_csv().encode('utf-8'), f'wiki_{keyword}.csv', 'text/csv')
+        
+    if 'df_social' in locals() and 'df_social' in locals() and not df_social.empty:
+        st.sidebar.download_button("🦋 Social CSV", df_social.to_csv(index=False).encode('utf-8'), f'social_{keyword}.csv', 'text/csv')
