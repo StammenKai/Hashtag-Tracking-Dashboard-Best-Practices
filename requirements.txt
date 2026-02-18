@@ -8,3 +8,4 @@ matplotlib
 mwviews
 streamlit-autorefresh
 fpdf
+openai

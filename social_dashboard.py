@@ -8,6 +8,72 @@ from atproto import Client
 from wordcloud import WordCloud
 from mwviews.api import PageviewsClient
 from streamlit_autorefresh import st_autorefresh
+from openai import OpenAI
+
+# --- FUNKTION: KI-ANALYSE ---
+def analyze_with_gpt(keyword, df_trends, df_news, df_wiki, df_social):
+    # 1. Daten für den Prompt vorbereiten (Text zusammenbauen)
+    
+    # Trends: Letzter Wert
+    trend_status = "Keine Daten"
+    if not df_trends.empty:
+        last_val = df_trends.iloc[-1][keyword]
+        trend_status = f"Suchinteresse aktuell bei {last_val}/100"
+
+    # Wiki: Summe
+    wiki_stats = "Keine Daten"
+    if not df_wiki.empty:
+        wiki_stats = f"{df_wiki.sum().values[0]} Aufrufe in 30 Tagen"
+
+    # News: Die 5 Schlagzeilen
+    news_text = "\n".join([f"- {row['Titel']}" for i, row in df_news.iterrows()]) if not df_news.empty else "Keine News"
+
+    # Social: Die 10 neuesten Posts
+    social_text = "Keine Posts"
+    if not df_social.empty:
+        social_text = "\n".join([f"- {row['Inhalt']}" for i, row in df_social.head(10).iterrows()])
+
+    # 2. Der Prompt (Der Befehl an die KI)
+    system_prompt = "Du bist ein erfahrener PR- und Markt-Analyst. Analysiere die folgenden Daten kurz und prägnant."
+    
+    user_prompt = f"""
+    Thema: {keyword}
+    
+    1. Google Trends Daten: {trend_status}
+    2. Wikipedia Interesse: {wiki_stats}
+    3. Aktuelle Schlagzeilen:
+    {news_text}
+    4. Social Media Stimmen (Bluesky):
+    {social_text}
+    
+    Bitte erstelle eine Zusammenfassung in folgendem Format:
+    ## 🧐 Management Summary
+    [Ein Satz zur Gesamtlage: Hype, Krise oder Stabil?]
+    
+    ## 🔥 Stimmungslage
+    [Zusammenfassung der Social Media Meinungen & News-Tonalität]
+    
+    ## ⚠️ Risikobewertung
+    [Gibt es Shitstorm-Gefahr oder kritische News? Wenn ja, welche?]
+    
+    ## 💡 Handlungsempfehlung
+    [Was sollte ein Marketing-Manager jetzt tun?]
+    """
+
+    # 3. Anfrage an OpenAI
+    try:
+        client = OpenAI(api_key=st.secrets["openai_api_key"])
+        response = client.chat.completions.create(
+            model="gpt-4o-mini", # Schnell & günstig (oder "gpt-4o" für max. Intelligenz)
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.7
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"KI-Fehler: {e}. Hast du den OpenAI Key in den Secrets?"
 
 # --- 1. KONFIGURATION ---
 st.set_page_config(page_title="Social Radar 360°", layout="wide", page_icon="📡")
@@ -149,6 +215,36 @@ if keyword:
         st.warning("Keine Google-Daten.")
 
     st.markdown("---")
+
+    if keyword:
+    # ... (Dein bisheriger Code für Charts etc.) ...
+
+    # --- KI ANALYSE BUTTON (NEU!) ---
+    st.markdown("### 🤖 KI-Marktanalyse")
+    
+    # Wir nutzen st.expander, damit es aufgeräumt aussieht
+    with st.expander("✨ Klicke hier für eine professionelle Einschätzung (Powered by AI)", expanded=False):
+        if st.button("Analyse generieren"):
+            with st.spinner("Die KI liest gerade die News und Posts..."):
+                # Wir übergeben alle gesammelten Daten an die Funktion
+                # ACHTUNG: Stelle sicher, dass du diese DFs vorher geladen hast!
+                # (Am besten rufst du die KI-Funktion erst auf, nachdem du df_trends, df_news etc. geholt hast)
+                
+                # Falls die Variablen noch nicht da sind, holen wir sie kurz (Caching hilft hier):
+                _trends = get_google_trends_data(keyword)
+                _news = get_news_feed(keyword)
+                _wiki, _ = get_wiki_data(keyword)
+                # Login prüfen für Social
+                _social = pd.DataFrame()
+                if bsky_user and bsky_pass:
+                    _social = get_bluesky_posts(keyword, bsky_user, bsky_pass)
+                
+                # Analyse starten
+                analysis_result = analyze_with_gpt(keyword, _trends, _news, _wiki, _social)
+                
+                # Ergebnis anzeigen
+                st.markdown(analysis_result)
+                st.success("Analyse abgeschlossen.")
 
     # --- 3-SPALTEN LAYOUT ---
     col1, col2, col3 = st.columns(3)
