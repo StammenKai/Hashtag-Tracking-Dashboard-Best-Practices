@@ -29,6 +29,41 @@ else:
     st.sidebar.info("Keine Secrets gefunden. Bitte manuell einloggen.")
     bsky_user = st.sidebar.text_input("Bluesky Handle")
     bsky_pass = st.sidebar.text_input("App Password", type="password")
+
+    st.sidebar.markdown("---")
+st.sidebar.header("💾 Daten-Export")
+
+if keyword:
+    # 1. Export: Google Trends
+    if 'df_trends' in locals() and not df_trends.empty:
+        csv_trends = df_trends.to_csv(index=False).encode('utf-8')
+        st.sidebar.download_button(
+            label="📈 Trends als CSV",
+            data=csv_trends,
+            file_name=f'trends_{keyword}.csv',
+            mime='text/csv',
+        )
+
+    # 2. Export: Wikipedia
+    if 'df_wiki' in locals() and not df_wiki.empty:
+        csv_wiki = df_wiki.to_csv().encode('utf-8')
+        st.sidebar.download_button(
+            label="📖 Wiki-Daten als CSV",
+            data=csv_wiki,
+            file_name=f'wiki_{keyword}.csv',
+            mime='text/csv',
+        )
+    
+    # 3. Export: Social (Bluesky)
+    if 'df_social' in locals() and not df_social.empty:
+        csv_social = df_social.to_csv(index=False).encode('utf-8')
+        st.sidebar.download_button(
+            label="🦋 Social-Posts als CSV",
+            data=csv_social,
+            file_name=f'social_{keyword}.csv',
+            mime='text/csv',
+        )
+        
 # --- FUNKTION 1: WIKIPEDIA (NEU!) ---
 @st.cache_data(ttl=3600)
 def get_wiki_data(keyword):
