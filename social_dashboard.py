@@ -74,6 +74,64 @@ def get_news_feed(keyword):
     if not feed.entries: return pd.DataFrame()
     return pd.DataFrame([{"Titel": e.title, "Link": e.link} for e in feed.entries[:5]])
 
+from fpdf import FPDF
+import tempfile
+from datetime import datetime
+
+# --- FUNKTION: PDF REPORT ERSTELLEN ---
+def create_pdf_report(keyword, df_trends, df_news, df_wiki, total_wiki_views):
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", size=12)
+    
+    # 1. Titel & Header
+    pdf.set_font("Arial", 'B', 16)
+    pdf.cell(200, 10, txt=f"Social Media Report: {keyword}", ln=True, align='C')
+    pdf.set_font("Arial", size=10)
+    pdf.cell(200, 10, txt=f"Erstellt am: {datetime.now().strftime('%d.%m.%Y %H:%M')}", ln=True, align='C')
+    pdf.ln(10) # Zeilenumbruch
+
+    # 2. Google Trends Chart (Neu zeichnen für PDF)
+    if not df_trends.empty:
+        pdf.set_font("Arial", 'B', 14)
+        pdf.cell(200, 10, txt="1. Google Suchinteresse (30 Tage)", ln=True)
+        
+        # Chart mit Matplotlib erstellen
+        plt.figure(figsize=(10, 5))
+        plt.plot(df_trends.index, df_trends[keyword], color='blue', linewidth=2)
+        plt.title(f"Suchvolumen für '{keyword}'")
+        plt.grid(True, linestyle='--', alpha=0.5)
+        
+        # Temporär speichern
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".png") as tmpfile:
+            plt.savefig(tmpfile.name, bbox_inches='tight')
+            plt.close() # Speicher freigeben
+            
+            # Bild ins PDF einfügen
+            pdf.image(tmpfile.name, x=10, w=190)
+        pdf.ln(5)
+
+    # 3. Wikipedia Stats
+    pdf.set_font("Arial", 'B', 14)
+    pdf.cell(200, 10, txt="2. Wikipedia Analyse", ln=True)
+    pdf.set_font("Arial", size=12)
+    pdf.cell(200, 10, txt=f"Gesamte Aufrufe (letzte 30 Tage): {total_wiki_views:,}", ln=True)
+    pdf.ln(5)
+
+    # 4. Top News Headlines
+    if not df_news.empty:
+        pdf.set_font("Arial", 'B', 14)
+        pdf.cell(200, 10, txt="3. Top Schlagzeilen", ln=True)
+        pdf.set_font("Arial", size=10)
+        
+        for i, row in df_news.iterrows():
+            # Titel bereinigen (FPDF mag manche Sonderzeichen nicht)
+            clean_title = row['Titel'].encode('latin-1', 'replace').decode('latin-1')
+            pdf.multi_cell(0, 8, txt=f"- {clean_title}")
+    
+    # PDF als Byte-String zurückgeben
+    return pdf.output(dest='S').encode('latin-1')
+
 # --- 4. HAUPT-DASHBOARD UI ---
 st.title("📡 Social Radar 360°")
 st.caption("Live-Monitoring: Google, News, Wikipedia & Bluesky")
@@ -147,3 +205,20 @@ if keyword:
         
     if 'df_social' in locals() and 'df_social' in locals() and not df_social.empty:
         st.sidebar.download_button("🦋 Social CSV", df_social.to_csv(index=False).encode('utf-8'), f'social_{keyword}.csv', 'text/csv')
+
+        # 4. Export: PDF Report (NEU!)
+    if 'df_trends' in locals() and 'df_wiki' in locals():
+        st.sidebar.markdown("---")
+        
+        # Wir berechnen die Wiki-Summe vorher, falls vorhanden
+        wiki_sum = df_wiki[wiki_term].sum() if not df_wiki.empty else 0
+        
+        # Button Logik
+        pdf_data = create_pdf_report(keyword, df_trends, df_news, df_wiki, wiki_sum)
+        
+        st.sidebar.download_button(
+            label="📄 PDF Report generieren",
+            data=pdf_data,
+            file_name=f'Report_{keyword}.pdf',
+            mime='application/pdf',
+        )
