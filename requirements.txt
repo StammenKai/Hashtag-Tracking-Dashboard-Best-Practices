@@ -1,0 +1,9 @@
+streamlit
+pandas
+feedparser
+pytrends
+atproto
+wordcloud
+matplotlib
+mwviews
+streamlit-autorefresh
